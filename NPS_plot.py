@@ -14,6 +14,7 @@ import glob
 import numpy as np
 import os
 import scipy.fft as fft 
+from scipy.optimize import curve_fit
 
 working_directory = 'F:/Røntgen/Arbeidsmappe/2022/2022 Filtermatching_GUI/CT bilder av Catphan/Body' #os.getcwd()
 
@@ -41,17 +42,53 @@ def sortImages(pathname):
         sortDict[ds.SliceLocation] = path
         mpl.rc('figure', max_open_warning = 0)
     sortedKeys = sorted(sortDict.keys())
-    return sortDict, sortedKeys 
+    return sortDict, sortedKeys
+
+# polynomial fit
+def func(x,y,a,b,c,d,e):
+    return a*(x-c) + b*y
+
+# Function passed to curve_fit
+def _func(M, *args):
+    x, y = M
+    arr = np.zeros(x.shape)
+    arr = func(x, y, *args)
+    return arr
+
+# 2D fit for images
+def surface_fit(image):
+    x_dim = image.shape[1]
+    y_dim = image.shape[0]
+    print(x_dim)
+    print(y_dim)
+    x = np.arange(0, x_dim, 1)
+    y = np.arange(0, y_dim, 1)
+    X, Y = np.meshgrid(x, y)
+    xdata = np.vstack((X.ravel(), Y.ravel()))
+    popt, pcov = curve_fit(_func, xdata, image.ravel(), (1, 1, 1, 1, 1))
+    print(popt)
+    print('------------------------------------')
+    print(*popt)
+    fit = np.zeros(image.shape)
+    fit = func(X, Y, *popt)
+    plt.figure()
+    plt.imshow(fit, cmap='seismic')
+    plt.show()
+    return fit
+    
+    
+    
 
 class Images:
     def __init__(self, folder_path):
        self.sortDict, self.sortedKeys = sortImages(folder_path) #Sort images
        self.ROIcorner = 150
        self.ROIsize = 201
-       # Using one of images to display ROI
+       # Using first image to display ROI
        data0 = self.sortDict[self.sortedKeys[0]]
        self.dicom0 = pydicom.dcmread(data0)
-       
+    
+    # Display first image with ROI
     def showROI(self):
         
         image0 = self.dicom0.pixel_array
@@ -64,35 +101,35 @@ class Images:
         ax.add_patch(rect)
         plt.show()
         
-        # Code to only display ROI-image.
-        #fig, ax = plt.subplots()
-        #im = ax.imshow(image0[self.ROIcorner:self.ROIcorner+self.ROIsize, self.ROIcorner:self.ROIcorner+self.ROIsize])
+        #2D match
+        #plt.figure()
+        #plt.imshow(surface_fit(image0[self.ROIcorner:self.ROIcorner+self.ROIsize, self.ROIcorner:self.ROIcorner+self.ROIsize]))
         #plt.show()
+        
+        # Code to only display ROI-image.
+        fig, ax = plt.subplots()
+        im = ax.imshow(image0[self.ROIcorner:self.ROIcorner+self.ROIsize, self.ROIcorner:self.ROIcorner+self.ROIsize])
+        plt.show()
     
-    def averageROI(self):
-        # Summing up ROI from images series and average
-        averageROI = np.zeros((self.ROIsize, self.ROIsize))
+    # Making 3d array of ROI
+    def ROIcube(self):
         self.N = len(self.sortedKeys)
         # ROI cube to contain the whole ROI.
         self.ROI_cube = np.empty((self.ROIsize, self.ROIsize, self.N))
         i = 0
         for key in self.sortedKeys:
-            # Average ROI
             data = self.sortDict[key]
             dicom = pydicom.dcmread(data)
             image = dicom.pixel_array
             image = image * dicom.RescaleSlope + dicom.RescaleIntercept
             ROI = image[self.ROIcorner:self.ROIcorner+self.ROIsize, self.ROIcorner:self.ROIcorner+self.ROIsize]
-            averageROI += ROI
             
             # Making ROI cube
             self.ROI_cube[:,:,i] = ROI
             i+=1
         print(f'N: {self.N}')
-        self.averageROI = averageROI/self.N
-        # plt.figure()
-        # plt.imshow(self.averageROI, cmap='Greys_r') 
     
+    # Calulating 2D NPS
     def fft2_avg(self):
         # Get the pixel size of the image series
         px_sz = self.dicom0[0x28, 0x30]
@@ -103,17 +140,26 @@ class Images:
         self.averageROI_fft = np.zeros((self.ROIsize, self.ROIsize))
         # summing fft of ROIs
         for i in range(self.N):
-            ROI_sub = self.ROI_cube[:,:,i] - self.averageROI
+            # Best linear fit
+            # ROI_fit = curve_fit(func, self.ROI_cube[:,:,i])
+            
+            #FFT of subtracted ROI
+            ROI_sub = self.ROI_cube[:,:,i] - np.mean(self.ROI_cube[:,:,i])
+            plt.figure()
+            plt.imshow(self.ROI_cube[:,:,i], cmap='seismic')
+            plt.show()
             ROI_fft = fft.fft2(ROI_sub)
-            ROI_fft_mod2 = np.real(ROI_fft)**2 + np.imag(ROI_fft)**2*(px_sz_row*px_sz_col)/(self.ROIsize**2)
+            ROI_fft_mod2 = (np.real(ROI_fft)**2 + np.imag(ROI_fft)**2)*(px_sz_row*px_sz_col)/(self.ROIsize**2)
             self.averageROI_fft += ROI_fft_mod2
         self.averageROI_fft = fft.fftshift(self.averageROI_fft/self.N)
-        
+    
+    # Displaying 2D NPS
     def NPS_2D(self):
         plt.figure()
         plt.imshow(self.averageROI_fft, cmap='Greys_r', vmin=min(self.averageROI_fft[50,:]), vmax=max(self.averageROI_fft[50,:]))
         plt.show()
-        
+      
+    # Radial average of 2D NPS    
     def radial_avg(self):
         # Creds to Naveen Venkatesan for the idea for this function
         cen_x = 100
@@ -146,7 +192,7 @@ class Images:
         '''
         # Code to plot a 1D-line in the image and disply signal - average.
         g = self.ROI_cube[:,0,0]
-        g_bar = self.averageROI[:,0]
+        g_bar = np.mean(self.ROI_cube[:,:,0])# self.averageROI[:,0]
         g_sub = g - g_bar
         
         
@@ -157,6 +203,8 @@ class Images:
         plt.legend()
         plt.show()
         '''
+      
+    # Not used yet    
     def setROI(self):
         print('ROI')
     
@@ -180,7 +228,7 @@ while True:
         images = Images(path)
         
         # NPS calculations
-        images.averageROI()
+        images.ROIcube()
         images.fft2_avg()
         
     if event == '-ROI-':

@@ -2,19 +2,20 @@
 """
 Created on Wed Dec  7 13:45:05 2022
 
-@author: josste
+@author: Jostein Steffensen
 Program for plotting NPS
 """
 
-import PySimpleGUI as sg
+
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import pydicom 
-import glob
 import numpy as np
 import os
-import scipy.fft as fft 
-from scipy.optimize import curve_fit
+import pydicom 
+import PySimpleGUI as sg
+import scipy.fft as fft
+
+from sort_images import sortImages
 
 working_directory = 'F:/Røntgen/Arbeidsmappe/2022/2022 Filtermatching_GUI/CT bilder av Catphan/Body' #os.getcwd()
 
@@ -29,55 +30,10 @@ layout = [
     [sg.Button("2D NPS", key='-2DNPS-', disabled=True)],
     [sg.Button("NPS", key='-NPS-', disabled=True)]
 ]
-window = sg.Window("Noise Power Spectrum", layout, size=((450,300)))
+window = sg.Window("Noise Power Spectrum", layout, size=((550,300)))
 
 ### Functions and classes
 # sort function
-def sortImages(pathname):
-    '''Function from Vilde
-    Sort images in same directory'''
-    sortDict = {}
-    for path in glob.glob(pathname):
-        ds = pydicom.dcmread(path, stop_before_pixels=True)
-        sortDict[ds.SliceLocation] = path
-        mpl.rc('figure', max_open_warning = 0)
-    sortedKeys = sorted(sortDict.keys())
-    return sortDict, sortedKeys
-
-# polynomial fit
-def func(x,y,a,b,c,d,e):
-    return a*(x-c) + b*y
-
-# Function passed to curve_fit
-def _func(M, *args):
-    x, y = M
-    arr = np.zeros(x.shape)
-    arr = func(x, y, *args)
-    return arr
-
-# 2D fit for images
-def surface_fit(image):
-    x_dim = image.shape[1]
-    y_dim = image.shape[0]
-    print(x_dim)
-    print(y_dim)
-    x = np.arange(0, x_dim, 1)
-    y = np.arange(0, y_dim, 1)
-    X, Y = np.meshgrid(x, y)
-    xdata = np.vstack((X.ravel(), Y.ravel()))
-    popt, pcov = curve_fit(_func, xdata, image.ravel(), (1, 1, 1, 1, 1))
-    print(popt)
-    print('------------------------------------')
-    print(*popt)
-    fit = np.zeros(image.shape)
-    fit = func(X, Y, *popt)
-    plt.figure()
-    plt.imshow(fit, cmap='seismic')
-    plt.show()
-    return fit
-    
-    
-    
 
 class Images:
     def __init__(self, folder_path):
@@ -145,9 +101,6 @@ class Images:
             
             #FFT of subtracted ROI
             ROI_sub = self.ROI_cube[:,:,i] - np.mean(self.ROI_cube[:,:,i])
-            plt.figure()
-            plt.imshow(self.ROI_cube[:,:,i], cmap='seismic')
-            plt.show()
             ROI_fft = fft.fft2(ROI_sub)
             ROI_fft_mod2 = (np.real(ROI_fft)**2 + np.imag(ROI_fft)**2)*(px_sz_row*px_sz_col)/(self.ROIsize**2)
             self.averageROI_fft += ROI_fft_mod2

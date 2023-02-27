@@ -10,7 +10,7 @@ Program for plotting NPS
 import os
 import PySimpleGUI as sg
 
-from NPS_calc import Images
+from image_calc import Images
 
 working_directory = 'F:/Røntgen/Arbeidsmappe/2022/2022 Filtermatching_GUI/CT bilder av Catphan/Body' #os.getcwd()
 
